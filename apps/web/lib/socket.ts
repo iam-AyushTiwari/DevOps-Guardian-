@@ -1,14 +1,14 @@
 import { io, Socket } from "socket.io-client";
+import { API_URL } from "@/lib/config";
 
 // In production, this URL should come from env
-const SOCKET_URL = "http://localhost:3001";
 
-class ClientSocketService {
-  public socket: Socket | null = null;
+class SocketService {
+  private socket: Socket | null = null;
 
   public connect() {
     if (!this.socket) {
-      this.socket = io(SOCKET_URL);
+      this.socket = io(API_URL);
       console.log("[Client] Socket connecting...");
 
       this.socket.on("connect", () => {
@@ -30,4 +30,4 @@ class ClientSocketService {
   }
 }
 
-export const socketService = new ClientSocketService();
+export const socketService = new SocketService();

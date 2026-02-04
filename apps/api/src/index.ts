@@ -30,6 +30,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Required for Slack interactions
 
 // Create HTTP server for Socket.io
 import { createServer } from "http";
@@ -235,6 +236,35 @@ app.post("/webhook/logs", async (req, res) => {
       projectId = cloudwatchData.logGroup || projectId;
       console.log(`[Webhook] CloudWatch: ${logs.length} log events from ${projectId}`);
     }
+    // Handle Generic Log Simulation (Raw JSON)
+    else if (req.body.log && req.body.source) {
+      console.log(`[Webhook] Simulation Event Received for Project: ${req.body.projectId}`);
+
+      // Construct an Incident from the raw log
+      const incidentId = crypto.randomUUID();
+      const incident = {
+        id: incidentId,
+        title: "Production Error: " + req.body.log.split("\n")[0].substring(0, 100),
+        description: req.body.log,
+        severity: "CRITICAL",
+        source: req.body.source,
+        status: "OPEN",
+        metadata: {
+          projectId: req.body.projectId,
+          raw_log: req.body.log,
+          timestamp: req.body.timestamp || new Date().toISOString(),
+        },
+        timestamp: new Date(),
+      };
+
+      console.log("Triggering Orchestrator with Mock Incident...", incidentId);
+      orchestrator.handleIncident(incident as any);
+      socketService.emitIncidentUpdate(incident as any);
+      // Emit the raw log so it shows up in Live Logs immediately
+      socketService.emitLog(req.body.projectId, req.body.log);
+
+      return res.status(200).json({ message: "Simulation triggered", incidentId });
+    }
     // Handle Datadog webhook format
     else if (payload.alertType || payload.event_type) {
       source = "datadog";
@@ -312,10 +342,65 @@ app.post("/webhook/logs", async (req, res) => {
   }
 });
 
-// New Endpoint: Get all active incidents for the Dashboard
-app.get("/incidents", (req, res) => {
-  const incidents = orchestrator.getActiveIncidents();
-  res.json({ incidents });
+// New Endpoint: Get active or history incidents
+app.get("/incidents", async (req, res) => {
+  const { projectId, status } = req.query;
+
+  try {
+    // If status is specific (e.g. RESOLVED), fetch from DB (History)
+    if (status === "RESOLVED") {
+      const incidents = await import("@devops-guardian/shared").then((m) =>
+        m.db.incident.findMany({
+          where: {
+            status: "RESOLVED",
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+          include: {
+            agentRuns: {
+              orderBy: { startedAt: "asc" },
+            },
+          },
+        }),
+      );
+
+      // Manual filter in JS to be safe with JSONB on SQLite/different DBs
+      const filtered = projectId
+        ? incidents.filter((i: any) => {
+            const meta = i.metadata as any;
+            return meta?.projectId === projectId || meta?.owner + "/" + meta?.repo === projectId;
+          })
+        : incidents;
+
+      // Map Prisma fields to Frontend Interface
+      const mapped = filtered.map((i: any) => ({
+        ...i,
+        timestamp: i.createdAt, // Frontend expects 'timestamp'
+        statusMessage: (i.metadata as any)?.statusMessage || "Resolution verified", // Fallback for resolved items
+        prUrl: (i.metadata as any)?.prUrl,
+      }));
+
+      return res.json({ incidents: mapped });
+    }
+
+    // Default: Active incidents from Orchestrator memory (fast)
+    let incidents = orchestrator.getActiveIncidents();
+
+    if (projectId) {
+      incidents = incidents.filter((i) => {
+        const meta = i.metadata as any;
+        return (
+          meta?.projectId === projectId || i.metadata?.owner + "/" + i.metadata?.repo === projectId
+        );
+      });
+    }
+
+    res.json({ incidents });
+  } catch (error: any) {
+    console.error("Failed to fetch incidents DETAILED:", JSON.stringify(error, null, 2));
+    console.error(error.stack);
+    res.status(500).json({ error: "Failed to fetch incidents", details: error.message });
+  }
 });
 
 httpServer.listen(port, () => {

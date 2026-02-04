@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { API_URL } from "@/lib/config";
 
 interface SlackSettingsProps {
   projectId: string;
@@ -23,7 +24,7 @@ export function SlackSettings({ projectId }: SlackSettingsProps) {
 
     setSaving(true);
     try {
-      const res = await fetch("http://localhost:3001/api/slack/config", {
+      const res = await fetch(`${API_URL}/api/slack/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, botToken, channelId }),

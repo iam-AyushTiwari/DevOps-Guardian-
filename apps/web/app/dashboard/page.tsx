@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { API_URL } from "@/lib/config";
 
 // Mock Data removed, using API
 interface Project {
@@ -27,10 +29,12 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ...
+
   useEffect(() => {
     const fetchProjects = async () => {
       try {
-        const res = await fetch("http://localhost:3001/api/projects");
+        const res = await fetch(`${API_URL}/api/projects`);
         const data = await res.json();
         if (data.projects) {
           setProjects(data.projects);
@@ -70,9 +74,21 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Projects Grid */}
         {loading ? (
-          <div className="text-zinc-500">Loading projects...</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={i}
+                className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 h-[280px] flex flex-col justify-between"
+              >
+                <Skeleton className="h-32 w-full rounded-lg mb-6" />
+                <div>
+                  <Skeleton className="h-5 w-1/2 mb-2" />
+                  <Skeleton className="h-4 w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => (

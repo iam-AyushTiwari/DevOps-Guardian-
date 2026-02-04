@@ -383,6 +383,52 @@ export class AgentOrchestrator {
   }
 
   /**
+   * Called when user REJECTS in Slack
+   */
+  async handleRejection(incidentId: string) {
+    try {
+      const incident = await db.incident.findUnique({ where: { id: incidentId } });
+      if (!incident) {
+        console.error(`[Orchestrator] Incident not found for rejection: ${incidentId}`);
+        return;
+      }
+
+      console.log(`[Orchestrator] Rejection received for: ${incidentId}`);
+
+      // Update in DB
+      await db.incident.update({
+        where: { id: incidentId },
+        data: {
+          status: "RESOLVED", // or CANCELLED if we prefer
+          metadata: {
+            ...(incident.metadata as any),
+            rejectedBy: "user",
+            rejectionReason: "Slack Interaction",
+          },
+        },
+      });
+
+      // Emit socket update
+      this.socketService.emitIncidentUpdate({
+        ...incident,
+        status: "RESOLVED",
+        statusMessage: "Fix Rejected by User (Won't Fix)",
+      });
+
+      // Update memory state
+      if (this.activeIncidents.has(incidentId)) {
+        const cached = this.activeIncidents.get(incidentId);
+        if (cached) {
+          cached.status = "RESOLVED";
+          this.activeIncidents.set(incidentId, cached);
+        }
+      }
+    } catch (error) {
+      console.error("[Orchestrator] Rejection handling failed:", error);
+    }
+  }
+
+  /**
    *  Shared PR creation and notification logic
    */
   private async createPRAndNotify(

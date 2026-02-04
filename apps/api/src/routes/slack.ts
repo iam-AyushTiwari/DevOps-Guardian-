@@ -95,7 +95,8 @@ router.post("/interactions", async (req: Request, res: Response): Promise<any> =
 
       if (action.action_id === "reject_fix") {
         console.log(`[Slack] Fix rejected for incident: ${incidentId}`);
-        return res.json({ text: "❌ Fix rejected." });
+        await orchestrator.handleRejection(incidentId);
+        return res.json({ text: "❌ Fix rejected. Incident marked as RESOLVED (User Rejected)." });
       }
     }
 

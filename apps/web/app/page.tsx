@@ -11,6 +11,7 @@ import {
   Terminal,
   ArrowRight,
 } from "lucide-react";
+import { API_URL } from "@/lib/config";
 
 type Incident = {
   id: string;
@@ -28,7 +29,7 @@ export default function Dashboard() {
 
   const fetchIncidents = async () => {
     try {
-      const res = await fetch("http://localhost:3001/incidents");
+      const res = await fetch(`${API_URL}/incidents`);
       const data = await res.json();
       setIncidents(data.incidents || []);
     } catch (err) {
