@@ -14,13 +14,15 @@
 
 ## 🚀 What is DevOps Guardian?
 
-DevOps Guardian is an autonomous AI agent that acts as a Tier-1 SRE. It connects to your infrastructure streams (AWS CloudWatch, Datadog), detects errors in real-time, and orchestrates a team of specialized AI agents to resolve incidents without human intervention.
+DevOps Guardian is an autonomous AI agent that acts as a Tier-1 SRE. It actively protects both your **Production Infrastructure** and **CI/CD Pipelines**.
+
+By connecting to stream sources like AWS CloudWatch, Datadog, and GitHub Actions, it detects errors in real-time and orchestrates a team of specialized AI agents to resolve incidents without human intervention.
 
 Unlike standard monitoring tools that just _alert_ you, Guardian **fixes** the problem.
 
 ### The Autonomous Loop
 
-1.  **👁️ Monitor**: Listens to live log streams and detects anomalies or errors.
+1.  **👁️ Monitor**: Listens to **live production logs** and **CI/CD build events** to detect anomalies.
 2.  **🧠 RCA Agent**: Analyzes the stack trace and codebase using **Gemini 3 Pro** reasoning.
 3.  **💊 Patch Agent**: Writes a code fix (patch) for the identified issue using **Gemini 3 Flash**.
 4.  **🧪 Verify Agent**: Spins up an isolated E2B sandbox to test the fix against the codebase.
@@ -30,18 +32,23 @@ Unlike standard monitoring tools that just _alert_ you, Guardian **fixes** the p
 
 ## ✨ Key Features
 
+### 🏗️ Autonomous CI/CD Manager
+
+- **Pipeline Generation**: Instantly generates Dockerfiles, GitHub Actions workflows, and Jenkinsfiles using Gemini 3.
+- **Build Error Healing**: Detects compilation or test failures in your CI pipeline, analyses the logs, and pushes a fix automatically.
+- **Zero-Touch Deployments**: If a build fails, Guardian fixes it before you even switch context.
+
 ### 🖥️ Unified Incident Command Center
 
+- **Production Live Logs**: Stream errors from your running apps in real-time with \<100ms latency.
 - **Real-Time Terminal**: Watch the AI "think" and work in a hacker-style terminal interface.
-- **Live Log Streaming**: See logs stream from your production servers with \<100ms latency.
 - **Project Health**: At-a-glance status checks for all your repositories.
 
 ### 🤖 Specialized AI Agents
 
-- **Pipeline Agent**: Automatically generates enterprise-grade CI/CD pipelines (Jenkins, GitHub Actions).
 - **RCA Agent**: Deep code analysis with **Gemini 3 Multimodal Model** for visual debugging.
 - **Patch Agent**: Context-aware code generation that respects your project's style.
-- **Verifier Agent**: Runs "npm test" or custom verification scripts in a secure sandbox.
+- **Verify Agent**: Runs "npm test" or custom verification scripts in a secure sandbox.
 
 ### 🛡️ Enterprise-Grade Security
 
