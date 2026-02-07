@@ -76,7 +76,18 @@ export class RCAAgent implements IAgent {
     }
     // --------------------------------
 
-    // 1. Context Assembly
+    // --------------------------------
+
+    // 1. Context Caching Strategy
+    let cacheName = "";
+    if (repoContext.length > 500) {
+      // Only cache if substantial
+      const cacheKey = `rca-${meta?.owner}-${meta?.repo}-${new Date().toISOString().split("T")[0]}`; // Daily cache key per repo
+      cacheName = await this.gemini.cacheContext(cacheKey, repoContext);
+    }
+
+    // 2. Context Assembly
+    // If we have a cache, we DON'T need to include repoContext in the prompt again.
     const context = `
       Incident: ${incident.title}
       Source: ${incident.source}
@@ -84,23 +95,40 @@ export class RCAAgent implements IAgent {
       Logs: ${JSON.stringify(incident.metadata || {})}
       ${distinctMemories}
       
-      ${repoContext}
+      ${!cacheName ? repoContext : "(Repository Context provided via Gemini Context Caching)"}
     `;
 
+    // 3. Extract Images (Multimodal)
+    const images: string[] = meta?.images || [];
+    if (images.length > 0) {
+      console.log(`[RCA] Found ${images.length} images in metadata. Using Multimodal analysis.`);
+    }
+
     const prompt = `
-      You are a Senior SRE. Analyze this incident context and identify the Root Cause.
+      You are a Senior SRE. Analyze this incident context ${images.length > 0 ? "and the attached screenshots" : ""} to identify the Root Cause.
       ${distinctMemories ? "Consider the Relevant Past Incidents provided above in your analysis." : ""}
-      ${repoContext ? "Use the Repository Structure and Config Files provided to understand the technology stack and dependencies." : ""}
+      ${cacheName ? "Refer to the cached Repository Context to understand the technology stack and dependencies." : repoContext ? "Use the Repository Structure and Config Files provided." : ""}
+      ${images.length > 0 ? "VISUAL ANALYSIS: Correlate the error logs with the visual state shown in the screenshots." : ""}
       
       Provide a specific technical reason and a recommended fix.
+      
+      Start your response with:
+      **Technology Stack:** [e.g. Node.js, Python, Go, etc.]
       
       Context:
       ${context}
     `;
 
     try {
-      // 2. Call Gemini with "Thinking" (Reasoning Trace)
-      const analysis = await this.gemini.generateWithReasoning(prompt, incident.id, this.name);
+      // 2. Call Gemini with "Thinking" (Reasoning Trace) + Images + Cache
+      const analysis = await this.gemini.generateWithReasoning(
+        prompt,
+        incident.id,
+        this.name,
+        images,
+        cacheName, // Pass cache name
+        "gemini-3-pro-preview", // Use Pro for deeper reasoning
+      );
 
       console.log(`[RCA] Analysis Complete.`);
 

@@ -16,9 +16,15 @@ export class PatchAgent implements IAgent {
     this.gemini = new GeminiProvider(apiKey || process.env.GEMINI_API_KEY || "");
   }
 
-  async execute(incident: IncidentEvent, rcaContext?: any): Promise<AgentResult> {
+  async execute(
+    incident: IncidentEvent,
+    rcaContext: any,
+    previousFailures?: string[],
+  ): Promise<AgentResult> {
     this.status = AgentStatus.WORKING;
-    console.log(`[Patch] Generating fix for: ${incident.title}`);
+    console.log(
+      `[Patch] Generating fix for: ${incident.title} ${previousFailures ? "(Retry Attempt)" : ""}`,
+    );
 
     // Extract metadata
     const metadata = incident.metadata as any;
@@ -45,24 +51,40 @@ Description: ${incident.description || incident.message}
 ## Root Cause Analysis
 ${typeof rcaContext.analysis === "string" ? rcaContext.analysis : JSON.stringify(rcaContext.analysis)}
 
+${
+  previousFailures && previousFailures.length > 0
+    ? `
+## ⚠️ PREVIOUS ATTEMPT FAILED
+The previous fix failed verification with the following errors. YOU MUST ADDRESS THESE ERRORS.
+Errors:
+${previousFailures.join("\n")}
+`
+    : ""
+}
+
 ## Instructions
-1. Identify the file(s) that need to be changed.
-2. Generate the COMPLETE fixed file content (not just a diff).
-3. Respond in JSON format:
+1. Analyze the file paths and code snippets in the RCA.
+2. DETECT the programming language (Python, Node.js, Go, etc.) context.
+3. GENERATE code ONLY in the detected language.
+   - DO NOT rewrite Python files as TypeScript/JavaScript.
+   - DO NOT introduce new dependencies unless absolutely necessary.
+4. Generate the COMPLETE fixed file content.
+5. Respond in JSON format:
 
 \`\`\`json
 {
   "fileUpdates": [
     {
-      "path": "path/to/file.ts",
+      "path": "path/to/file.<ext>",
       "content": "// The complete fixed file content here..."
     }
   ],
-  "explanation": "Brief explanation of the fix"
+  "explanation": "Brief explanation of the fix (mention how it addresses the failure if applicable)"
 }
 \`\`\`
 
 IMPORTANT: Return ONLY the JSON. No markdown code blocks outside of the JSON structure.
+Match the file extension to the existing project language (e.g., .py for Python, .ts for TypeScript).
 `;
 
       // 2. Call Gemini
@@ -106,6 +128,7 @@ IMPORTANT: Return ONLY the JSON. No markdown code blocks outside of the JSON str
           files: parsed.fileUpdates?.map((f: any) => f.path) || [],
           fileUpdates: parsed.fileUpdates || [],
           explanation: parsed.explanation,
+          summary: parsed.explanation, // Alias for frontend "Patch Strategy" display
         },
       };
     } catch (error: any) {

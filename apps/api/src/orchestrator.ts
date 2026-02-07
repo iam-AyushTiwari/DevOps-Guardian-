@@ -137,13 +137,25 @@ export class AgentOrchestrator {
     console.log("[Orchestrator] Starting Workflow: Monitor -> RCA -> Patch -> Verify");
 
     // Update Status
-    incident.status = "RCA_IN_PROGRESS"; // Use string for UI simplicity
+    // Update Status
+    (incident as any).status = "RCA_IN_PROGRESS"; // Use string for UI simplicity
     this.socketService.emitIncidentUpdate({
       ...incident,
       statusMessage: "Analyzing Root Cause...",
     });
 
-    // Step 1: RCA
+    // 1. RCA
+    // Ensure we have a valid GitHub token (fetched from Secrets Manager if redacted or missing)
+    const meta = incident.metadata as any;
+    if (meta?.projectId && (!meta.token || meta.token === "REDACTED")) {
+      console.log(`[Orchestrator] Fetching secure token for project: ${meta.projectId}`);
+      const secureToken = await this.secretsManager.getGitHubToken(meta.projectId);
+      if (secureToken) {
+        meta.token = secureToken;
+        incident.metadata = meta;
+      }
+    }
+
     await this.logAgentRun(incident.id, "RCA", AgentStatus.WORKING, "Starting analysis...");
     const rcaResult = await this.rcaAgent.execute(incident);
     await this.logAgentRun(
@@ -162,7 +174,7 @@ export class AgentOrchestrator {
 
     // Step 2: Patch
     console.log("[2/4] Patch Agent starting...");
-    incident.status = "PATCH_IN_PROGRESS";
+    (incident as any).status = "PATCH_IN_PROGRESS";
     this.socketService.emitIncidentUpdate({ ...incident, statusMessage: "Generating Code Fix..." });
 
     await this.logAgentRun(incident.id, "Patch", AgentStatus.WORKING, "Generating fix...");
@@ -176,6 +188,16 @@ export class AgentOrchestrator {
 
     if (!patchResult.success) {
       console.error("[Orchestrator] Patch Failed. Stopping.");
+      (incident as any).status = "FAILED";
+      this.socketService.emitIncidentUpdate({
+        ...incident,
+        status: "FAILED",
+        statusMessage: "Patch Generation Failed",
+      });
+      await db.incident.update({
+        where: { id: incident.id },
+        data: { status: "FAILED" },
+      });
       return;
     }
 
@@ -203,7 +225,8 @@ export class AgentOrchestrator {
 
   private async logAgentRun(incidentId: string, name: string, status: AgentStatus, log: string) {
     try {
-      await db.agentRun.create({
+      // 1. Persist to DB
+      const run = await db.agentRun.create({
         data: {
           incidentId,
           agentName: name,
@@ -211,51 +234,141 @@ export class AgentOrchestrator {
           thoughts: log,
         },
       });
+
+      // 2. Update Memory Cache if exists
+      const incident = this.activeIncidents.get(incidentId);
+      if (incident) {
+        if (!(incident as any).agentRuns) (incident as any).agentRuns = [];
+        const runs = (incident as any).agentRuns;
+        const existingIdx = runs.findIndex((r: any) => r.id === run.id);
+        if (existingIdx >= 0) {
+          runs[existingIdx] = run;
+        } else {
+          runs.push(run);
+        }
+        this.activeIncidents.set(incidentId, incident);
+      }
+
+      // 3. Emit live log & run status
+      const projectId = (incident?.metadata as any)?.projectId || "unknown";
+      this.socketService.emitLog(
+        projectId,
+        log,
+        status === AgentStatus.FAILED ? "ERROR" : "INFO",
+        name,
+        incidentId,
+      );
+      this.socketService.emitAgentRun(incidentId, run);
+
+      // Also emit incident update to refresh basic status
+      if (incident) {
+        this.socketService.emitIncidentUpdate(incident);
+      }
     } catch (e) {
       console.error("Failed to log agent run", e);
     }
   }
 
   /**
+  /**
    * CI/CD Auto-Fix Workflow: Verify -> PR -> Slack Notification
    */
   private async runAutoFixWorkflow(incident: IncidentEvent, rcaData: any, patchData: any) {
-    // Step 3: Verify
-    console.log("[3/4] Verification Agent starting...");
-    incident.status = "VERIFY_IN_PROGRESS";
-    this.socketService.emitIncidentUpdate({
-      ...incident,
-      statusMessage: "Verifying Fix in Sandbox...",
-    });
+    // Step 3: Verify with Self-Healing Loop
+    let verified = false;
+    let attempt = 0;
+    const MAX_RETRIES = 3;
+    let currentPatchData = patchData;
+    let verificationLogs: string[] = [];
 
-    await this.logAgentRun(incident.id, "Verify", AgentStatus.WORKING, "Verifying fix...");
-    const verifyResult = await this.verificationAgent.execute(incident, patchData);
-    await this.logAgentRun(
-      incident.id,
-      "Verify",
-      verifyResult.success ? AgentStatus.COMPLETED : AgentStatus.FAILED,
-      JSON.stringify(verifyResult),
-    );
+    while (!verified && attempt < MAX_RETRIES) {
+      if (attempt > 0) {
+        console.log(
+          `[Orchestrator] Verification failed. Starting Self-Healing Attempt ${attempt + 1}/${MAX_RETRIES}...`,
+        );
+        this.socketService.emitIncidentUpdate({
+          ...incident,
+          statusMessage: `Verification Failed. Retrying Fix (${attempt + 1}/${MAX_RETRIES})...`,
+        });
 
-    if (!verifyResult.success) {
-      console.error("[Orchestrator] Verification failed. Stopping auto-fix.");
+        // 3.1 Re-Patch with feedback
+        await this.logAgentRun(
+          incident.id,
+          "Patch",
+          AgentStatus.WORKING,
+          `Self-healing fix (Attempt ${attempt + 1})...`,
+        );
+        const retryPatchResult = await this.patchAgent.execute(incident, rcaData, verificationLogs);
+
+        if (!retryPatchResult.success) {
+          console.error("[Orchestrator] Re-patch failed. Aborting retry.");
+          break;
+        }
+        currentPatchData = retryPatchResult.data;
+
+        await this.logAgentRun(
+          incident.id,
+          "Patch",
+          AgentStatus.COMPLETED,
+          JSON.stringify(retryPatchResult), // Log new patch
+        );
+      }
+
+      // 3.2 Verify
+      console.log(`[3/4] Verification Agent starting (Attempt ${attempt + 1})...`);
+      (incident as any).status = "VERIFY_IN_PROGRESS";
+      this.socketService.emitIncidentUpdate({
+        ...incident,
+        statusMessage: `Verifying Fix in Sandbox (Attempt ${attempt + 1})...`,
+      });
+
+      await this.logAgentRun(
+        incident.id,
+        "Verify",
+        AgentStatus.WORKING,
+        `Verifying fix (Attempt ${attempt + 1})...`,
+      );
+      const verifyResult = await this.verificationAgent.execute(
+        incident,
+        currentPatchData,
+        rcaData,
+      );
+
+      await this.logAgentRun(
+        incident.id,
+        "Verify",
+        verifyResult.success ? AgentStatus.COMPLETED : AgentStatus.FAILED,
+        JSON.stringify(verifyResult),
+      );
+
+      if (verifyResult.success) {
+        verified = true;
+        console.log("[Orchestrator] Verification Successful!");
+      } else {
+        verificationLogs = verifyResult.data?.logs || [verifyResult.error || "Unknown error"];
+        attempt++;
+      }
+    }
+
+    if (!verified) {
+      console.error("[Orchestrator] All verification attempts failed. Stopping auto-fix.");
       this.socketService.emitIncidentUpdate({
         ...incident,
         status: "FAILED",
-        statusMessage: "Verification Failed",
+        statusMessage: "Verification Failed (Max Retries Exceeded)",
       });
       return;
     }
 
     // Step 4: Create PR and notify
-    await this.createPRAndNotify(incident, patchData, rcaData, "ci-cd");
+    await this.createPRAndNotify(incident, currentPatchData, rcaData, "ci-cd");
   }
 
   /**
    * Production Approval Workflow: Send Slack notification -> Wait for approval
    */
   private async requestApproval(incident: IncidentEvent, rcaData: any, patchData: any) {
-    incident.status = "AWAITING_APPROVAL";
+    (incident as any).status = "AWAITING_APPROVAL";
     this.socketService.emitIncidentUpdate({
       ...incident,
       statusMessage: "Waiting for Approval (Slack)...",
@@ -265,20 +378,21 @@ export class AgentOrchestrator {
     const slackService = await this.getSlackService(projectId);
 
     if (!slackService) {
-      console.warn("[Orchestrator] Slack not configured. Proceeding with auto-fix.");
-      await this.runAutoFixWorkflow(incident, rcaData, patchData);
-      return;
+      console.warn(
+        "[Orchestrator] Slack not configured. Waiting for Manual Approval on Dashboard.",
+      );
+      // DO NOT Auto-Fix. User requested manual confirmation.
+      // We retain AWAITING_APPROVAL status so Dashboard can show buttons.
+    } else {
+      // Send approval request to Slack
+      await slackService.sendIncidentNotification({
+        id: incident.id,
+        title: incident.title || "Unknown Incident",
+        rcaAnalysis: rcaData?.analysis || "RCA analysis pending",
+        patchSummary: patchData?.summary || patchData?.diff?.substring(0, 300) || "Patch generated",
+      });
+      console.log(`[Orchestrator] Approval request sent to Slack for incident: ${incident.id}`);
     }
-
-    // Send approval request to Slack
-    await slackService.sendIncidentNotification({
-      id: incident.id,
-      title: incident.title,
-      rcaAnalysis: rcaData?.analysis || "RCA analysis pending",
-      patchSummary: patchData?.summary || patchData?.diff?.substring(0, 300) || "Patch generated",
-    });
-
-    console.log(`[Orchestrator] Approval request sent to Slack for incident: ${incident.id}`);
 
     // Store incident data for when user approves
     await db.incident.update({
@@ -419,7 +533,7 @@ export class AgentOrchestrator {
       if (this.activeIncidents.has(incidentId)) {
         const cached = this.activeIncidents.get(incidentId);
         if (cached) {
-          cached.status = "RESOLVED";
+          (cached as any).status = "RESOLVED";
           this.activeIncidents.set(incidentId, cached);
         }
       }
@@ -440,14 +554,14 @@ export class AgentOrchestrator {
     //Step 3: Verify (for production flow)
     if (source === "production") {
       console.log("[3/4] Verification Agent starting...");
-      incident.status = "VERIFY_IN_PROGRESS";
+      (incident as any).status = "VERIFY_IN_PROGRESS";
       this.socketService.emitIncidentUpdate({
         ...incident,
         statusMessage: "Verifying Fix in Sandbox...",
       });
 
       await this.logAgentRun(incident.id, "Verify", AgentStatus.WORKING, "Verifying fix...");
-      const verifyResult = await this.verificationAgent.execute(incident, patchData);
+      const verifyResult = await this.verificationAgent.execute(incident, patchData, rcaData);
       await this.logAgentRun(
         incident.id,
         "Verify",
@@ -468,7 +582,7 @@ export class AgentOrchestrator {
 
     // Step 4: PR Creation
     console.log('[4/4] PR Agent: "Creating Pull Request..."');
-    incident.status = "PR_CREATION_IN_PROGRESS";
+    (incident as any).status = "PR_CREATION_IN_PROGRESS";
     this.socketService.emitIncidentUpdate({
       ...incident,
       statusMessage: "Creating Pull Request...",
@@ -487,6 +601,7 @@ export class AgentOrchestrator {
     const prResult = await this.prAgent.execute(
       incident,
       { owner, repo, fileUpdates: patchData.fileUpdates },
+      rcaData, // Pass RCA data for better PR body
       metadata?.token,
     );
 
@@ -510,7 +625,25 @@ export class AgentOrchestrator {
     const prUrl = prResult.data.prUrl;
     console.log(`[Orchestrator] PR created: ${prUrl}`);
 
-    incident.status = "RESOLVED";
+    (incident as any).status = "RESOLVED";
+
+    // Persist Resolution to DB
+    try {
+      await db.incident.update({
+        where: { id: incident.id },
+        data: {
+          status: "RESOLVED",
+          metadata: {
+            ...(incident.metadata as any), // preserve existing metadata
+            prUrl,
+            resolvedAt: new Date(),
+          },
+        },
+      });
+    } catch (e) {
+      console.error("[Orchestrator] Failed to persist resolution status:", e);
+    }
+
     this.socketService.emitIncidentUpdate({
       ...incident,
       status: "RESOLVED",
@@ -525,13 +658,13 @@ export class AgentOrchestrator {
     if (slackService) {
       if (source === "ci-cd") {
         await slackService.sendAutoFixCompletedNotification({
-          title: incident.title,
+          title: incident.title || "Auto Fix",
           rcaAnalysis: rcaData?.analysis || "Auto-fix completed",
           filesChanged: patchData?.fileUpdates?.map((f: any) => f.path) || [],
           prUrl,
         });
       } else {
-        await slackService.sendPRCreatedNotification(prUrl, incident.title);
+        await slackService.sendPRCreatedNotification(prUrl, incident.title || "PR Created");
       }
     }
   }

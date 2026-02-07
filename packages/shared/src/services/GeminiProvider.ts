@@ -19,39 +19,108 @@ export class GeminiProvider {
     prompt: string,
     incidentId: string,
     agentName: string,
+    images: string[] = [],
+    cachedContentName?: string, // Support for Context Caching
+    modelOverride?: string, // Allow agents to request specific models (e.g., gemini-3-pro-preview)
   ): Promise<string> {
     try {
-      // Primary: Gemini 3.0 Flash Preview (User Requested)
-      const primaryModel = "gemini-3-flash-preview";
+      // Primary: Gemini 3 Flash Preview (PhD-level reasoning, optimized for speed)
+      const primaryModel = modelOverride || "gemini-3-flash-preview";
 
-      console.log(`[GeminiProvider] Attempting primary model: ${primaryModel}`);
+      if (images.length > 0) {
+        console.log(
+          `[GeminiProvider] 📸 Activating Gemini 3 Multimodal Preview (${primaryModel}) for ${images.length} images`,
+        );
+      } else {
+        console.log(
+          `[GeminiProvider] Attempting model: ${primaryModel} ${cachedContentName ? `with cache: ${cachedContentName}` : ""}`,
+        );
+      }
+
+      // Construct Multi-modal Content
+      const parts: any[] = [{ text: prompt }];
+
+      // images is array of base64 strings (data:image/png;base64,...)
+      images.forEach((img) => {
+        const base64Data = img.split(",")[1] || img;
+        parts.push({
+          inlineData: {
+            mimeType: "image/png",
+            data: base64Data,
+          },
+        });
+      });
+
+      // Config with Caching Support
+      const config: any = {
+        thinkingConfig: {
+          includeThoughts: true,
+        },
+      };
+
+      // If cached content provided, use it
+      let contents: any[] = [{ role: "user", parts }];
+      let model = primaryModel;
+
+      // NOTE: Caching API interaction often happens *outside* generateContent in some SDK versions,
+      // or passed as 'cachedContent' property in the request.
+      // For @google/genai, it's often:
+      // client.models.generateContent({ model: '...', contents: ..., cachedContent: 'name' })
+
+      if (cachedContentName) {
+        config.cachedContent = cachedContentName;
+      }
 
       try {
         const result = await this.client.models.generateContent({
           model: primaryModel,
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          config: {
-            thinkingConfig: {
-              includeThoughts: true,
-            },
-          },
+          contents,
+          config,
         });
         return await this.processResult(result, incidentId, agentName);
       } catch (err: any) {
-        // Fallback: Gemini 1.5 Flash-002 (Stable)
-        console.warn(
-          `[GeminiProvider] Primary model failed (${err.message}). Switching to fallback.`,
-        );
+        // Handle Rate Limits (429) for Primary
+        if (err.status === 429) {
+          console.warn("[GeminiProvider] Primary Model Rate Limit hit. Waiting 5s...");
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            const result = await this.client.models.generateContent({
+              model: primaryModel,
+              contents,
+              config,
+            });
+            return await this.processResult(result, incidentId, agentName);
+          } catch (e) {
+            console.warn("[GeminiProvider] Primary Retry failed. Switching to Fallback.");
+          }
+        }
 
-        const fallbackModel = "gemini-2.5-flash";
-        console.log(`[GeminiProvider] Attempting fallback model: ${fallbackModel}`);
+        // Fallback: Gemini 3 Flash Preview
+        const fallbackModel = "gemini-3-flash-preview";
+        console.warn(`[GeminiProvider] Switching to fallback: ${fallbackModel}`);
 
-        const result = await this.client.models.generateContent({
-          model: fallbackModel,
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          // Note: 1.5 Flash does not support 'thinkingConfig', so we omit it
-        });
-        return await this.processResult(result, incidentId, agentName);
+        try {
+          const fallbackConfig = cachedContentName ? { cachedContent: cachedContentName } : {};
+          const result = await this.client.models.generateContent({
+            model: fallbackModel,
+            contents,
+            config: fallbackConfig,
+          });
+          return await this.processResult(result, incidentId, agentName);
+        } catch (fallbackErr: any) {
+          // If fallback also hitting rate limit, try one last time after delay
+          if (fallbackErr.status === 429) {
+            console.warn("[GeminiProvider] Fallback Rate Limit hit. Final retry in 5s...");
+            await new Promise((r) => setTimeout(r, 5000));
+            const result = await this.client.models.generateContent({
+              model: fallbackModel,
+              contents,
+              config: cachedContentName ? { cachedContent: cachedContentName } : {},
+            });
+            return await this.processResult(result, incidentId, agentName);
+          }
+          throw fallbackErr;
+        }
       }
     } catch (error: any) {
       console.error("[RCA] Failed:", error);
@@ -67,6 +136,56 @@ export class GeminiProvider {
       });
 
       throw error;
+    }
+  }
+
+  /**
+   * Caches a large text context (like a repo dump) for 1 hour.
+   * Returns the `cachedContent.name` (resource ID).
+   */
+  async cacheContext(key: string, content: string, ttlSeconds: number = 3600): Promise<string> {
+    try {
+      console.log(`[GeminiProvider] Caching context for key: ${key} (${content.length} chars)...`);
+
+      // 1. Upload File (Text)
+      // Convert string to Buffer
+      const buffer = Buffer.from(content);
+
+      // @google/genai "files" namespace usage
+      // Note: SDK structure might vary, adapting to common pattern
+      const uploadResponse = await this.client.files.upload({
+        file: {
+          metadata: {
+            displayName: key,
+            mimeType: "text/plain",
+          },
+        },
+        media: {
+          mimeType: "text/plain",
+          body: buffer,
+        },
+      });
+
+      const fileUri = uploadResponse.file.uri;
+      console.log(`[GeminiProvider] File uploaded: ${fileUri}`);
+
+      // 2. Create Cache
+      const cacheResponse = await this.client.caches.create({
+        model: "models/gemini-3-flash", // Must match model used
+        contents: [
+          {
+            role: "user",
+            parts: [{ fileData: { fileUri, mimeType: "text/plain" } }],
+          },
+        ],
+        ttlSeconds, // "300s" string or number depending on SDK. Trying number.
+      });
+
+      console.log(`[GeminiProvider] Cache created: ${cacheResponse.name}`);
+      return cacheResponse.name;
+    } catch (e: any) {
+      console.warn("[GeminiProvider] Caching failed (skipping):", e.message);
+      return ""; // Return empty to fallback to normal context
     }
   }
 
@@ -92,7 +211,7 @@ export class GeminiProvider {
   // Simple generate without DB logging (for Patch Agent)
   async generate(prompt: string): Promise<string> {
     try {
-      const model = "gemini-2.5-flash"; // Use stable model for code gen
+      const model = "gemini-3-flash-preview"; // Use stable model for code gen
       console.log(`[GeminiProvider] Generating content with: ${model}`);
 
       const result = await this.client.models.generateContent({

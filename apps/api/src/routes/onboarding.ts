@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
-import { db, GitHubService } from "@devops-guardian/shared";
+import { db, GitHubService, GeminiProvider } from "@devops-guardian/shared";
+import { SecretsManagerService } from "@devops-guardian/shared/src/services/SecretsManagerService";
 import { PipelineAgent } from "../agents/pipeline";
 
 const router = Router();
@@ -28,7 +29,9 @@ router.post("/analyze", async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: "Missing repo or token" });
 
     const [owner, repo] = githubRepo.split("/");
-    const agent = new PipelineAgent(githubToken);
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    const gemini = new GeminiProvider(apiKey);
+    const agent = new PipelineAgent(githubToken, gemini);
     const result = await agent.analyze(owner, repo);
 
     return res.json({ result });
@@ -41,13 +44,17 @@ router.post("/analyze", async (req: Request, res: Response): Promise<any> => {
 // POST /api/onboarding/pipeline - Create new pipeline
 router.post("/pipeline", async (req: Request, res: Response): Promise<any> => {
   try {
-    const { githubRepo, githubToken, type, env } = req.body;
+    const { githubRepo, githubToken, type, stack, env } = req.body;
     if (!githubRepo || !githubToken || !type)
       return res.status(400).json({ error: "Missing required fields" });
 
     const [owner, repo] = githubRepo.split("/");
-    const agent = new PipelineAgent(githubToken);
-    const result = await agent.generatePipeline(owner, repo, type, env);
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    const gemini = new GeminiProvider(apiKey);
+    const agent = new PipelineAgent(githubToken, gemini);
+
+    console.log(`[Onboarding] Generating pipeline for ${githubRepo} (Stack: ${stack || "node"})`);
+    const result = await agent.generatePipeline(owner, repo, type, stack || "node", env);
 
     return res.json({ result });
   } catch (error: any) {
@@ -75,9 +82,21 @@ router.post("/connect", async (req: Request, res: Response): Promise<any> => {
       data: {
         name,
         githubRepo, // "facebook/react"
-        githubToken, // Ideally, encrypt this!
+        githubToken: "REDACTED", // Token is now in Secrets Manager
       },
     });
+
+    // 3. Store Token in Secrets Manager
+    console.log(`[Onboarding] Attempting to secure GitHub token for project: ${project.id}...`);
+    const secretsManager = new SecretsManagerService();
+    try {
+      await secretsManager.storeGitHubToken(project.id, githubToken);
+      console.log(`[Onboarding] GitHub token secured in Secrets Manager ✅`);
+    } catch (secError: any) {
+      console.error(`[Onboarding] FAILED to store token in Secrets Manager:`, secError.message);
+      // We don't throw here to avoid failing the whole project creation,
+      // but we log it for debugging.
+    }
 
     console.log(`[Onboarding] Project Created: ${project.id}`);
 

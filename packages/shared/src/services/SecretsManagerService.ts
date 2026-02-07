@@ -9,8 +9,21 @@ export class SecretsManagerService {
   private client: SecretsManagerClient;
 
   constructor(region: string = "us-east-1") {
-    // In production, credentials should be picked up from env vars or IAM role
-    this.client = new SecretsManagerClient({ region });
+    const credentials =
+      process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+        ? {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+          }
+        : undefined;
+
+    this.client = new SecretsManagerClient({
+      region: process.env.AWS_REGION || region,
+      credentials,
+    });
+    console.log(
+      `[SecretsManager] Client initialized for region: ${process.env.AWS_REGION || region}`,
+    );
   }
 
   /**
@@ -64,6 +77,10 @@ export class SecretsManagerService {
       }
       return {};
     } catch (error: any) {
+      if (error.name === "ResourceNotFoundException") {
+        // Quietly fail for non-existent secrets
+        return {};
+      }
       console.error(`[SecretsManager] Failed to get secret ${secretName}:`, error);
       throw error;
     }
@@ -106,6 +123,27 @@ export class SecretsManagerService {
     } catch (error) {
       // It's okay if it doesn't exist, we'll return empty
       return {};
+    }
+  }
+
+  /**
+   * Store GitHub token for a project
+   */
+  async storeGitHubToken(projectId: string, token: string) {
+    const secretName = `devops-guardian/${projectId}/github`;
+    return this.storeSecrets(secretName, { token });
+  }
+
+  /**
+   * Retrieve GitHub token for a project
+   */
+  async getGitHubToken(projectId: string): Promise<string | null> {
+    const secretName = `devops-guardian/${projectId}/github`;
+    try {
+      const secrets = await this.getSecrets(secretName);
+      return secrets.token || null;
+    } catch (error) {
+      return null;
     }
   }
 }

@@ -23,8 +23,8 @@ Unlike standard monitoring tools that just _alert_ you, Guardian **fixes** the p
 ### The Autonomous Loop
 
 1.  **👁️ Monitor**: Listens to **live production logs** and **CI/CD build events** to detect anomalies.
-2.  **🧠 RCA Agent**: Analyzes the stack trace and codebase using **Gemini 3 Pro** reasoning.
-3.  **💊 Patch Agent**: Writes a code fix (patch) for the identified issue using **Gemini 3 Flash**.
+2.  **🧠 RCA Agent**: Analyzes the stack trace and codebase using **Gemini 3 Pro Preview** (Reasoning Model).
+3.  **💊 Patch Agent**: Writes a code fix (patch) for the identified issue using **Gemini 3 Flash Preview** (Speed Model).
 4.  **🧪 Verify Agent**: Spins up an isolated E2B sandbox to test the fix against the codebase.
 5.  **✅ Resolve**: Creates a Pull Request and notifies your team via Slack.
 
@@ -37,6 +37,34 @@ Unlike standard monitoring tools that just _alert_ you, Guardian **fixes** the p
 - **Pipeline Generation**: Instantly generates Dockerfiles, GitHub Actions workflows, and Jenkinsfiles using Gemini 3.
 - **Build Error Healing**: Detects compilation or test failures in your CI pipeline, analyses the logs, and pushes a fix automatically.
 - **Zero-Touch Deployments**: If a build fails, Guardian fixes it before you even switch context.
+
+## 🧪 Testing & Simulations
+
+We have built-in scripts to simulate various incident scenarios for Hackathon demos:
+
+### 1. CI/CD Auto-Fix Simulation (Autonomous)
+
+Simulates a build failure in a CI pipeline. The agent will detect, RCA, Patch, Verify, and **Auto-Merge** the fix.
+
+```bash
+npx tsx scripts/test-cicd.ts <PROJECT_ID>
+```
+
+### 2. Production Incident Simulation (Human-in-the-Loop)
+
+Simulates critical errors from **AWS CloudWatch** and **Datadog**. The agent will propose a fix but **WAIT for your approval** in Slack/Dashboard.
+
+```bash
+npx tsx scripts/test-production.ts <PROJECT_ID>
+```
+
+### 3. Connectivity Verification
+
+Verifies that the backend, socket, and webhook endpoints are reachable.
+
+```bash
+npx tsx scripts/verify_live_logs.ts
+```
 
 ### 🖥️ Unified Incident Command Center
 
@@ -95,7 +123,7 @@ graph TD
 - **Frontend**: Next.js 14, TailwindCSS, shadcn/ui, Framer Motion
 - **Backend**: Node.js, Express, Socket.io
 - **Database**: PostgreSQL, Prisma ORM
-- **AI Core**: **Google Gemini 3 Family (Flash, Pro & Multimodal)**
+- **AI Core**: **Google Gemini 3 Family (Flash Preview, Pro Preview & Multimodal)**
 - **Infrastructure**: AWS SDK (Secrets Manager), E2B (Sandboxing)
 
 ---

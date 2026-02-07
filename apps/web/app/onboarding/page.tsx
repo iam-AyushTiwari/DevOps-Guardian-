@@ -28,15 +28,22 @@ export default function OnboardingPage() {
   const [repos, setRepos] = useState<any[]>([]);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
 
-  // Load token from URL or state
+  // Load token and step from URL or localStorage
   useEffect(() => {
-    const token = searchParams.get("token") || form.githubToken;
+    const urlStep = searchParams.get("step");
+    if (urlStep) setStep(parseInt(urlStep));
+
+    const token =
+      searchParams.get("token") || localStorage.getItem("github_token") || form.githubToken;
     if (token) {
       setForm((prev) => ({ ...prev, githubToken: token }));
+      localStorage.setItem("github_token", token);
       fetchRepos(token);
-      if (step === 1) setStep(2);
+
+      // If we have a token and we are on step 1, move to step 2 automatically
+      if (step === 1 && !urlStep) setStep(2);
     }
-  }, [searchParams, form.githubToken]);
+  }, [searchParams]);
 
   const fetchRepos = async (token: string) => {
     try {
@@ -53,7 +60,7 @@ export default function OnboardingPage() {
   };
 
   const handleOAuth = () => {
-    window.location.href = `${API_URL}/api/auth/github`;
+    window.location.href = `${API_URL}/api/auth/github?redirect=/onboarding`;
   };
 
   const handleAnalysis = async (e: React.FormEvent) => {
@@ -115,6 +122,7 @@ export default function OnboardingPage() {
         body: JSON.stringify({
           ...form,
           type: selectedPipelineType,
+          stack: analysisResult?.suggestedStack || "node", // Use detected stack
           env: finalEnvs,
         }),
       });

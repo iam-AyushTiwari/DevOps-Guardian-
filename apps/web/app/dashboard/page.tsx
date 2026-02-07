@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, AlertTriangle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -32,9 +32,23 @@ export default function DashboardPage() {
   // ...
 
   useEffect(() => {
+    // 1. Check for Token in URL (from Auth Redirect)
+    const params = new URLSearchParams(window.location.search);
+    const tokenFromUrl = params.get("token");
+    if (tokenFromUrl) {
+      localStorage.setItem("github_token", tokenFromUrl);
+      window.history.replaceState({}, document.title, window.location.pathname); // Clean URL
+    }
+
     const fetchProjects = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/projects`);
+        const token = localStorage.getItem("github_token");
+        const headers: any = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const res = await fetch(`${API_URL}/api/projects`, { headers });
+        // Handle 401 - maybe prompt login?
+
         const data = await res.json();
         if (data.projects) {
           setProjects(data.projects);
@@ -128,6 +142,14 @@ export default function DashboardPage() {
                   <span className="mx-1">•</span>
                   <span>{project.githubRepo}</span>
                 </div>
+
+                {/* Slack Warning Badge */}
+                {!(project as any).slackConfigured && (
+                  <div className="mt-3 inline-flex items-center gap-1.5 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-[10px] font-medium">
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>Slack Not Connected</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>

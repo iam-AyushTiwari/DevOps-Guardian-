@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "cross-env PORT=3001 tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "build:prod": "cd ../.. && npm install && npm run build --workspace=packages/shared && npm run build --workspace=apps/api",
+    "prisma:generate": "cd ../../packages/shared && npx prisma generate",
+    "start": "cd ../../packages/shared && npx prisma migrate deploy && cd ../../apps/api && node dist/index.js"
   },
   "dependencies": {
     "@devops-guardian/shared": "^0.1.0",

@@ -89,14 +89,26 @@ router.post("/interactions", async (req: Request, res: Response): Promise<any> =
       }
 
       if (action.action_id === "approve_pr") {
-        await orchestrator.handleApproval(incidentId);
-        return res.json({ text: "✅ PR creation started! Check logs for progress." });
+        // Ack immediately to prevent timeout
+        orchestrator
+          .handleApproval(incidentId)
+          .then(() => console.log(`[Slack] Approval handled for ${incidentId}`))
+          .catch((err) => console.error(`[Slack] Approval failed for ${incidentId}:`, err));
+
+        return res.status(200).send();
       }
 
       if (action.action_id === "reject_fix") {
         console.log(`[Slack] Fix rejected for incident: ${incidentId}`);
-        await orchestrator.handleRejection(incidentId);
-        return res.json({ text: "❌ Fix rejected. Incident marked as RESOLVED (User Rejected)." });
+        // Ack immediately
+        orchestrator
+          .handleRejection(incidentId)
+          .then(() => console.log(`[Slack] Rejection handled for ${incidentId}`))
+          .catch((err) => console.error(`[Slack] Rejection failed for ${incidentId}:`, err));
+
+        return res
+          .status(200)
+          .json({ text: "❌ Fix rejected. Incident marked as RESOLVED (User Rejected)." });
       }
     }
 

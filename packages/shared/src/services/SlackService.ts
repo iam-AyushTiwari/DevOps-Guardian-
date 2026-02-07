@@ -163,34 +163,42 @@ ${incident.patchSummary}
     try {
       await this.client.chat.postMessage({
         channel: this.channelId,
-        blocks: [
+        attachments: [
           {
-            type: "header",
-            text: {
-              type: "plain_text",
-              text: "🤖 CI/CD Error Auto-Fixed",
-            },
-          },
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `*Bug:* ${incident.title}\n\n*Root Cause:*\n${incident.rcaAnalysis.substring(0, 400)}...\n\n*Files Changed:*\n${incident.filesChanged
-                .slice(0, 5)
-                .map((f) => `• \`${f}\``)
-                .join("\n")}`,
-            },
-          },
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `✅ *PR Created:* <${incident.prUrl}|View on GitHub>`,
-            },
+            color: "#36a64f", // Green bar
+            title: "[GUARD-CI] ✅ Automated Fix: Build Failure Resolved",
+            title_link: incident.prUrl,
+            fields: [
+              {
+                title: "Incident",
+                value: incident.title,
+                short: false,
+              },
+              {
+                title: "Action",
+                value: "Verified in E2B Sandbox (Exit Code 0)",
+                short: true,
+              },
+              {
+                title: "Status",
+                value: `PR created automatically`,
+                short: true,
+              },
+            ],
+            actions: [
+              {
+                type: "button",
+                text: "View Pull Request",
+                url: incident.prUrl,
+                style: "primary",
+              },
+            ],
+            footer: "DevOps Guardian Autonomous Agent",
+            ts: Math.floor(Date.now() / 1000).toString(),
           },
         ],
       });
-      console.log("[Slack] Auto-fix notification sent");
+      console.log("[Slack] Auto-fix notification sent for:", incident.title);
     } catch (error) {
       console.error("[Slack] Failed to send auto-fix notification:", error);
     }

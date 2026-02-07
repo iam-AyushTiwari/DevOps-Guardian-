@@ -24,13 +24,13 @@ const port = process.env.PORT || 3001;
 
 app.use(
   cors({
-    origin: ["http://localhost:3002", "http://127.0.0.1:3002"],
+    origin: [process.env.FRONTEND_URL || "http://localhost:3002", "http://127.0.0.1:3002"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   }),
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Required for Slack interactions
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true })); // Required for Slack interactions
 
 // Create HTTP server for Socket.io
 import { createServer } from "http";
@@ -83,6 +83,13 @@ app.post("/webhook/github", async (req, res) => {
 
       console.log(`[Webhook] Processing failed workflow: ${run.name} in ${repo.full_name}`);
 
+      // Lookup Project to get the Token
+      const project = await import("@devops-guardian/shared").then((m) =>
+        m.db.project.findFirst({
+          where: { githubRepo: repo.full_name },
+        }),
+      );
+
       const incident = {
         id: crypto.randomUUID(),
         source: "GITHUB" as const,
@@ -99,8 +106,9 @@ app.post("/webhook/github", async (req, res) => {
           runId: run.id,
           logsUrl: run.logs_url,
           htmlUrl: run.html_url,
-          // Token should be looked up from DB based on project
-          // For now, we'll rely on PRAgent looking it up
+          token: project?.githubToken, // Injected from DB
+          projectId: project?.id,
+          errorSource: "ci-cd",
         },
         timestamp: new Date(),
       };
@@ -177,6 +185,7 @@ app.post("/webhook/jenkins", async (req, res) => {
           branch: payload.git_branch,
           commitSha: payload.git_commit,
           consoleLog: payload.console_log,
+          errorSource: "ci-cd",
         },
         timestamp: new Date(),
       };
@@ -253,6 +262,7 @@ app.post("/webhook/logs", async (req, res) => {
           projectId: req.body.projectId,
           raw_log: req.body.log,
           timestamp: req.body.timestamp || new Date().toISOString(),
+          errorSource: req.body.environment || "ci-cd",
         },
         timestamp: new Date(),
       };
@@ -347,6 +357,11 @@ app.get("/incidents", async (req, res) => {
   const { projectId, status } = req.query;
 
   try {
+    // Disable caching to prevent 304 issues with history updates
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
     // If status is specific (e.g. RESOLVED), fetch from DB (History)
     if (status === "RESOLVED") {
       const incidents = await import("@devops-guardian/shared").then((m) =>
@@ -378,6 +393,7 @@ app.get("/incidents", async (req, res) => {
         timestamp: i.createdAt, // Frontend expects 'timestamp'
         statusMessage: (i.metadata as any)?.statusMessage || "Resolution verified", // Fallback for resolved items
         prUrl: (i.metadata as any)?.prUrl,
+        agentRuns: i.agentRuns, // Ensure agent runs are passed
       }));
 
       return res.json({ incidents: mapped });

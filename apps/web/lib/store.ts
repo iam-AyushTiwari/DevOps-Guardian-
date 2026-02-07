@@ -1,5 +1,15 @@
 import { create } from "zustand";
 
+interface AgentRun {
+  id: string;
+  agentName: string;
+  status: "IDLE" | "WORKING" | "COMPLETED" | "FAILED" | "WAITING_FOR_USER";
+  thoughts?: string;
+  output?: any;
+  startedAt: string;
+  completedAt?: string;
+}
+
 interface Incident {
   id: string;
   title: string;
@@ -8,6 +18,7 @@ interface Incident {
   prUrl?: string;
   timestamp: string;
   metadata?: any;
+  agentRuns?: AgentRun[];
 }
 
 interface IncidentState {
@@ -15,6 +26,7 @@ interface IncidentState {
   setIncidents: (incidents: Incident[]) => void;
   addIncident: (incident: Incident) => void;
   updateIncident: (incident: Incident) => void;
+  setAgentRuns: (incidentId: string, runs: AgentRun[]) => void;
 }
 
 export const useIncidentStore = create<IncidentState>((set) => ({
@@ -29,5 +41,9 @@ export const useIncidentStore = create<IncidentState>((set) => ({
   updateIncident: (incident) =>
     set((state) => ({
       incidents: state.incidents.map((i) => (i.id === incident.id ? { ...i, ...incident } : i)),
+    })),
+  setAgentRuns: (incidentId, runs) =>
+    set((state) => ({
+      incidents: state.incidents.map((i) => (i.id === incidentId ? { ...i, agentRuns: runs } : i)),
     })),
 }));

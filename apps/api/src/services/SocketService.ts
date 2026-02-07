@@ -17,7 +17,7 @@ export class SocketService {
   public initialize(httpServer: HttpServer) {
     this.io = new Server(httpServer, {
       cors: {
-        origin: ["http://localhost:3002", "http://127.0.0.1:3002"],
+        origin: [process.env.FRONTEND_URL || "http://localhost:3002", "http://127.0.0.1:3002"],
         methods: ["GET", "POST"],
         credentials: true,
       },
@@ -47,13 +47,30 @@ export class SocketService {
   }
 
   /**
-   * Emit log line to specific project room (future optimization)
+   * Emit log line to specific project room
    */
-  public emitLog(projectId: string, log: string) {
-    this.emit("log:received", { projectId, log, timestamp: new Date() });
+  public emitLog(
+    projectId: string,
+    log: string,
+    level: string = "INFO",
+    source: string = "System",
+    incidentId?: string,
+  ) {
+    this.emit("log:received", {
+      projectId,
+      incidentId,
+      log,
+      level,
+      source,
+      timestamp: new Date(),
+    });
   }
 
   public emitIncidentUpdate(incident: any) {
     this.emit("incident:update", incident);
+  }
+
+  public emitAgentRun(incidentId: string, agentRun: any) {
+    this.emit("agent:run", { incidentId, agentRun });
   }
 }

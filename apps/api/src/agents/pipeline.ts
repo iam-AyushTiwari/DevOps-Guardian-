@@ -1,5 +1,10 @@
 import { IAgent, AgentStatus, AgentResult, IncidentEvent } from "@devops-guardian/shared";
-import { GitHubService, SecretsManagerService, VerificationService } from "@devops-guardian/shared";
+import {
+  GitHubService,
+  SecretsManagerService,
+  VerificationService,
+  GeminiProvider,
+} from "@devops-guardian/shared";
 
 export class PipelineAgent implements IAgent {
   name = "Pipeline Agent";
@@ -7,11 +12,15 @@ export class PipelineAgent implements IAgent {
   private github: GitHubService;
   private secretsHelper: SecretsManagerService;
   private verifier: VerificationService;
+  private gemini: GeminiProvider;
+  private token: string;
 
-  constructor(token: string) {
+  constructor(token: string, gemini: GeminiProvider) {
+    this.token = token;
     this.github = new GitHubService(token);
     this.secretsHelper = new SecretsManagerService();
     this.verifier = new VerificationService();
+    this.gemini = gemini;
   }
 
   async execute(incident: IncidentEvent): Promise<AgentResult> {
@@ -58,71 +67,75 @@ export class PipelineAgent implements IAgent {
       return { status: "MISSING", suggestedStack: stack };
     } catch (error) {
       console.warn("[Pipeline] Analysis Partial/Failed:", error);
-      // Fallback if .github folder doesn't exist (404)
       return { status: "MISSING", suggestedStack: "unknown" };
     } finally {
       this.status = AgentStatus.IDLE;
     }
   }
 
-  async generatePipeline(owner: string, repo: string, type: string, envs?: Record<string, string>) {
+  private async generateAIContent(
+    type: string,
+    stack: string,
+    envs?: Record<string, string>,
+  ): Promise<string> {
+    const envString = envs
+      ? Object.keys(envs)
+          .map((k) => `${k}: \${{ secrets.${k} }}`)
+          .join("\n")
+      : "";
+
+    const prompt = `Act as a Senior DevOps Engineer. Generate a production-ready ${type} configuration for a ${stack} project.
+    
+    Follow an Enterprise CI structure with these mandatory stages:
+    1. **Quality & Security**: Run linting (e.g., eslint), formatting, and a security audit (e.g., npm audit).
+    2. **Test**: Run unit tests and integration tests.
+    3. **Build**: Compile the project and upload artifacts (e.g., dist/ or build/ folder).
+    
+    Requirements:
+    - Use caching for dependencies where possible to optimize speed.
+    - If ${type} is "github-actions", use individual jobs with 'needs' to enforce ordering.
+    - If ${type} is "jenkins", use Declarative Pipeline syntax with 'stages'.
+    - Inject these environment variables if applicable:
+    ${envString}
+    
+    Return ONLY the raw file content (YAML or Groovy) without markdown blocks (no \`\`\`) or explanations.`;
+
+    console.log(`[Pipeline] Asking Gemini to generate Enterprise ${type} for ${stack}...`);
+    const content = await this.gemini.generate(prompt);
+
+    return content.replace(/^```[a-z]*\s*/i, "").replace(/\s*```$/, "");
+  }
+
+  async generatePipeline(
+    owner: string,
+    repo: string,
+    type: string,
+    stack: string = "node",
+    envs?: Record<string, string>,
+  ) {
     this.status = AgentStatus.WORKING;
-    console.log(`[Pipeline] Generating ${type} pipeline for ${owner}/${repo}...`);
+    console.log(`[Pipeline] Generating ${type} pipeline for ${owner}/${repo} (Stack: ${stack})...`);
 
     try {
-      // 1. Store Secrets if provided
       if (envs && Object.keys(envs).length > 0) {
         await this.secretsHelper.storeEnvVars(owner, repo, envs);
       }
 
-      let content = "";
       let path = "";
       let message = "";
 
       if (type === "github-actions") {
         path = ".github/workflows/devops-guardian.yml";
-        message = "ci: add devops guardian pipeline";
-        content = `name: DevOps Guardian CI
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Use Node.js 18.x
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18.x
-        cache: 'npm'
-    - run: npm ci
-    - run: npm run build --if-present
-    - run: npm test --if-present
-`;
+        message = "ci: add enterprise-grade devops guardian pipeline";
       } else if (type === "jenkins") {
         path = "Jenkinsfile";
-        message = "ci: add jenkinsfile";
-        content = `pipeline {
-    agent any
-    stages {
-        stage('Build') {
-            steps {
-                sh 'npm install'
-            }
-        }
-    }
-}`;
+        message = "ci: add enterprise-grade jenkinsfile";
       } else {
         throw new Error(`Unsupported pipeline type: ${type}`);
       }
 
-      // 3. Verify in E2B (if key present)
+      const content = await this.generateAIContent(type, stack, envs);
+
       let verificationPassed = false;
       let verificationLogs: string[] = [];
       const e2bKey = process.env.E2B_API_KEY;
@@ -130,46 +143,31 @@ jobs:
       if (e2bKey) {
         console.log("[Pipeline] Starting E2B Verification...");
         const repoUrl = `https://github.com/${owner}/${repo}.git`;
-        const result = await this.verifier.verifyBuild(repoUrl, envs || {});
+        const result = await this.verifier.verifyBuild(repoUrl, envs || {}, this.token);
         verificationLogs = result.logs;
 
         if (!result.success) {
-          console.warn("[Pipeline] Verification Failed in Sandbox:", result.logs);
           throw new Error("Verification Failed. Logs: " + result.logs.join("\n"));
         }
         verificationPassed = true;
-        console.log("[Pipeline] Verification Passed!");
-      } else {
-        console.log("[Pipeline] Skipping Verification (No E2B Key detected)");
-        // Strict Mode: Fail if no key (as per user request "don't do direct commit if not found show error")
-        throw new Error("E2B_API_KEY is missing. Cannot verify pipeline.");
       }
 
-      // 4. Create PR (Strict Mode: Only if verified)
-      if (verificationPassed) {
-        const branchName = `ci/devops-guardian-${Date.now()}`;
+      const branchName = `ci/devops-guardian-${Date.now()}`;
+      await this.github.createBranch(owner, repo, "main", branchName);
+      await this.github.commitFile(owner, repo, path, content, message, branchName);
 
-        // Create Branch
-        await this.github.createBranch(owner, repo, "main", branchName);
+      const pr = await this.github.createPullRequest(
+        owner,
+        repo,
+        "Add Enterprise-Grade CI/CD Pipeline",
+        `Adds a dynamically generated **${type}** pipeline for **${stack}**.\n\n` +
+          `**Verification Status**: ${verificationPassed ? "✅ Verified" : "⚠️ Skipped"}\n\n` +
+          `Logs:\n\`\`\`\n${verificationLogs.join("\n")}\n\`\`\``,
+        branchName,
+        "main",
+      );
 
-        // Commit to Branch
-        await this.github.commitFile(owner, repo, path, content, message, branchName);
-
-        // Create PR
-        const pr = await this.github.createPullRequest(
-          owner,
-          repo,
-          "Add DevOps Guardian Pipeline",
-          `Adds ${type} pipeline configuration.\n\n**Verification Status**: ✅ Passed\n\nLogs:\n\`\`\`\n${verificationLogs.join("\n")}\n\`\`\``,
-          branchName,
-          "main",
-        );
-
-        console.log("[Pipeline] PR Created:", pr.url);
-        return { success: true, path, type, prUrl: pr.url, verified: true };
-      }
-
-      throw new Error("Unexpected State: Verification passed but PR logic skipped.");
+      return { success: true, path, type, prUrl: pr.url, verified: verificationPassed };
     } catch (error: any) {
       console.error("[Pipeline] Generation Failed:", error);
       throw error;

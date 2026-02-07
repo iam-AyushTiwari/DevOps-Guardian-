@@ -5,16 +5,11 @@ import { socketService } from "@/lib/socket";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AnimatedLoader } from "@/components/ui/animated-loader";
-import {
-  Activity,
-  CheckCircle2,
-  AlertTriangle,
-  GitPullRequest,
-  Loader2,
-  History,
-} from "lucide-react";
+import { Activity, CheckCircle2, AlertTriangle, GitPullRequest, History } from "lucide-react";
 import Link from "next/link";
 import { API_URL } from "@/lib/config";
+import { useIncidentStore } from "@/lib/store";
+import { IncidentTerminal } from "./IncidentTerminal";
 
 interface Incident {
   id: string;
@@ -42,10 +37,8 @@ interface IncidentFeedProps {
   statusFilter?: string;
 }
 
-import { useIncidentStore } from "@/lib/store";
-
 export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
-  const { incidents, setIncidents, updateIncident, addIncident } = useIncidentStore();
+  const { incidents, setIncidents, updateIncident, setAgentRuns } = useIncidentStore();
   const [historyIncidents, setHistoryIncidents] = useState<Incident[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -78,30 +71,36 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
         if (projectId) {
           const meta = updatedIncident.metadata;
           // Check if this incident belongs to the current project
-          const matchesId = meta?.projectId === projectId;
+          const matchesId =
+            meta?.projectId === projectId || meta?.owner + "/" + meta?.repo === projectId;
           if (!matchesId) return; // Ignore irrelevant events
         }
+        updateIncident(updatedIncident);
+      };
 
-        // Check if it exists to decide add or update
-        const existing = incidents.find((i) => i.id === updatedIncident.id);
-        if (existing) {
-          updateIncident(updatedIncident);
-        } else {
-          addIncident(updatedIncident);
+      const handleAgentRun = ({ incidentId, agentRun }: { incidentId: string; agentRun: any }) => {
+        const incident = useIncidentStore.getState().incidents.find((i) => i.id === incidentId);
+        if (incident) {
+          const runs = [...(incident.agentRuns || [])];
+          const idx = runs.findIndex((r) => r.id === agentRun.id);
+          if (idx >= 0) runs[idx] = agentRun;
+          else runs.push(agentRun);
+
+          setAgentRuns(incidentId, runs);
         }
       };
 
       socket.on("incident:update", handleUpdate);
+      socket.on("agent:run", handleAgentRun);
 
       return () => {
         socket.off("incident:update", handleUpdate);
+        socket.off("agent:run", handleAgentRun);
       };
     }
-  }, [projectId, statusFilter, incidents, setIncidents, updateIncident, addIncident]); // Depend on projectId and statusFilter
+  }, [projectId, statusFilter, setIncidents, updateIncident, setAgentRuns]);
 
-  // Filter incidents from store based on current projectId to ensure we don't show mixed data
-  // if the store holds all. (Currently store holds what we fetch.
-  // Ideally store should be a map or we just filter here).
+  // Filter incidents from store based on current projectId
   const displayIncidents =
     statusFilter === "RESOLVED"
       ? historyIncidents
@@ -141,7 +140,6 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
                   <History className="h-10 w-10 mx-auto mb-3 text-zinc-600" />
                   <p>No resolved incidents yet.</p>
                   <p className="text-sm">Fixes will appear here after verification.</p>
-                  <p className="text-xs text-zinc-800 mt-2 font-mono">Debug: {projectId}</p>
                 </>
               ) : (
                 <>
@@ -167,8 +165,13 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
                   <h4 className="font-semibold text-sm text-zinc-200 leading-tight mb-1">
                     {incident.title}
                   </h4>
-                  <p className="text-xs text-zinc-500 font-mono">
+                  <p className="text-xs text-zinc-500 font-mono flex items-center gap-2">
                     {new Date(incident.timestamp).toLocaleString()}
+                    {(incident as any).source === "MANUAL_REPORT" && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-700">
+                        User Reported
+                      </span>
+                    )}
                   </p>
                 </div>
                 <StatusBadge status={incident.status} />
@@ -179,7 +182,6 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
                 <span className="font-mono text-zinc-400 flex items-center gap-2">
                   {incident.statusMessage ? (
                     <>
-                      {/* Status-specific icons or loaders */}
                       {incident.statusMessage.includes("Analyzing") && (
                         <AnimatedLoader variant="dots" />
                       )}
@@ -189,7 +191,6 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
                       {incident.statusMessage.includes("Verifying") && (
                         <AnimatedLoader variant="pulse" />
                       )}
-
                       <span>{incident.statusMessage}</span>
                     </>
                   ) : incident.status === "RESOLVED" ? (
@@ -199,7 +200,6 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
                   )}
                 </span>
                 {isWorking(incident.status) && (
-                  // Global indicator
                   <div className="opacity-50">
                     <AnimatedLoader variant="wave" className="h-2 scale-75" />
                   </div>
@@ -219,50 +219,16 @@ export function IncidentFeed({ projectId, statusFilter }: IncidentFeedProps) {
               )}
 
               {/* Expanded Agent History */}
-              {expandedId === incident.id &&
-                incident.agentRuns &&
-                incident.agentRuns.length > 0 && (
-                  <div className="mt-4 border-t border-zinc-800 pt-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <h5 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">
-                      Execution Timeline
-                    </h5>
-                    <div className="space-y-6 relative pl-4 border-l border-zinc-800 ml-1">
-                      {incident.agentRuns.map((run, idx) => (
-                        <div key={run.id} className="relative">
-                          <div
-                            className={`absolute -left-[21px] top-1.5 h-3 w-3 rounded-full border ${
-                              run.status === "COMPLETED"
-                                ? "bg-green-500/20 border-green-500"
-                                : run.status === "FAILED"
-                                  ? "bg-red-500/20 border-red-500"
-                                  : "bg-zinc-800 border-zinc-600"
-                            }`}
-                          />
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm font-medium text-zinc-200">
-                              {getAgentDisplayName(run.agentName)}
-                            </span>
-                            <span className="text-[10px] text-zinc-600 font-mono">
-                              {new Date(run.startedAt).toLocaleTimeString()}
-                            </span>
-                          </div>
-
-                          {run.thoughts && (
-                            <div className="bg-zinc-950 border border-zinc-800/50 p-3 rounded-md text-xs font-mono text-zinc-400 whitespace-pre-wrap leading-relaxed shadow-inner">
-                              <span className="text-purple-400 font-bold opacity-50 block mb-1">
-                                THOUGHTS:
-                              </span>
-                              {run.thoughts}
-                            </div>
-                          )}
-                          {run.status === "FAILED" && (
-                            <p className="text-xs text-red-400 mt-2">Agent Failed</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              {expandedId === incident.id && (
+                <div className="mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <IncidentTerminal
+                    incidentId={incident.id}
+                    projectId={projectId || (incident.metadata as any)?.projectId || ""}
+                    agentRuns={incident.agentRuns || []}
+                    status={incident.status}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -291,7 +257,6 @@ function StatusBadge({ status = "UNKNOWN" }: { status?: string }) {
       </Badge>
     );
 
-  // Map UNKNOWN to a cleaner "Pending" state if desired, or keep as is
   const displayStatus = status === "UNKNOWN" ? "PENDING" : status.replace(/_/g, " ");
 
   return (
@@ -303,19 +268,4 @@ function StatusBadge({ status = "UNKNOWN" }: { status?: string }) {
 
 function isWorking(status: string) {
   return status !== "RESOLVED" && status !== "AWAITING_APPROVAL" && status !== "FAILED";
-}
-
-type IncomingIncident = Incident;
-
-function getAgentDisplayName(name: string) {
-  switch (name) {
-    case "RCA":
-      return "Context Fetcher";
-    case "Patch":
-      return "Logic Engine";
-    case "Verify":
-      return "Verification Sandbox";
-    default:
-      return name;
-  }
 }

@@ -13,6 +13,7 @@ import { LiveLogStream } from "@/components/monitoring/LiveLogStream";
 import { IncidentFeed } from "@/components/monitoring/IncidentFeed";
 import { API_URL } from "@/lib/config";
 import { useIncidentStore } from "@/lib/store";
+import { ReportIncidentDialog } from "@/components/ReportIncidentDialog";
 
 interface Project {
   id: string;
@@ -83,14 +84,28 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     const fetchProject = async () => {
       try {
-        const res = await fetch("http://localhost:3001/api/projects");
+        const token = localStorage.getItem("github_token");
+        const headers: any = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        // Get project by name (or ID if we could, but UI uses name in URL)
+        // Since we don't have a direct name-to-id mapping without fetching all,
+        // we'll keep the "find" logic but use the project detail API for the specific id once found.
+        const res = await fetch(`${API_URL}/api/projects`, { headers });
         const data = await res.json();
-        const found = data.projects.find(
-          (p: Project) => p.name === decodeURIComponent(projectName),
-        );
-        setProject(found || null);
+        const found = data.projects.find((p: any) => p.name === decodeURIComponent(projectName));
+
+        if (found) {
+          // Re-fetch specific project details to get full object (including slackConfigured)
+          const detailRes = await fetch(`${API_URL}/api/projects/${found.id}`);
+          const detailData = await detailRes.json();
+          setProject(detailData.project || null);
+        } else {
+          setProject(null);
+        }
       } catch (error) {
         console.error("Failed to fetch project", error);
+        toast.error("Failed to load project details");
       } finally {
         setLoading(false);
       }
@@ -160,22 +175,9 @@ export default function ProjectDetailPage() {
             >
               Settings
             </Button>
-            <Button
-              className="bg-purple-600 hover:bg-purple-700 text-white"
-              onClick={async () => {
-                toast.info("Starting manual scan...");
-                try {
-                  await fetch(`${API_URL}/api/projects/${project.id}/scan`, {
-                    method: "POST",
-                  });
-                  toast.success("Scan initiated! Check Incidents tab.");
-                } catch (e) {
-                  toast.error("Failed to trigger scan");
-                }
-              }}
-            >
-              Trigger Scan
-            </Button>
+
+            {/* New Manual Incident Report Modal */}
+            <ReportIncidentDialog projectId={project.id} />
           </div>
         </header>
 
@@ -219,7 +221,11 @@ export default function ProjectDetailPage() {
 
           {/* Monitoring Tab */}
           <TabsContent value="monitoring">
-            <MonitoringSetupGuide projectId={project.id} projectName={project.name} />
+            <MonitoringSetupGuide
+              projectId={project.id}
+              projectName={project.name}
+              slackConfigured={(project as any).slackConfigured}
+            />
           </TabsContent>
         </Tabs>
       </div>
