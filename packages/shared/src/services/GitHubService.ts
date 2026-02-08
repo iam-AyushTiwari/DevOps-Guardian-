@@ -1,16 +1,27 @@
-import { Octokit } from "@octokit/rest";
+import type { Octokit } from "@octokit/rest";
 
 export class GitHubService {
-  private octokit: Octokit;
+  private octokit!: Octokit;
+  private initPromise: Promise<void>;
 
   constructor(authToken: string) {
+    this.initPromise = this.initialize(authToken);
+  }
+
+  private async initialize(authToken: string) {
+    const { Octokit } = await import("@octokit/rest");
     this.octokit = new Octokit({ auth: authToken });
+  }
+
+  private async ensureInitialized() {
+    await this.initPromise;
   }
 
   /**
    * Validates the token and returns the authenticated user.
    */
   async getAuthenticatedUser() {
+    await this.ensureInitialized();
     try {
       const { data } = await this.octokit.users.getAuthenticated();
       return data;
@@ -24,6 +35,7 @@ export class GitHubService {
    * Fetches file content from a repository.
    */
   async getFileContent(owner: string, repo: string, path: string): Promise<string> {
+    await this.ensureInitialized();
     try {
       const { data } = await this.octokit.repos.getContent({
         owner,
@@ -46,6 +58,7 @@ export class GitHubService {
    * Lists repositories for the authenticated user.
    */
   async getUserRepositories() {
+    await this.ensureInitialized();
     try {
       const { data } = await this.octokit.repos.listForAuthenticatedUser({
         visibility: "all",
@@ -64,6 +77,7 @@ export class GitHubService {
    * Useful for detecting files like Jenkinsfile, package.json, etc.
    */
   async getRepoStructure(owner: string, repo: string, path: string = "") {
+    await this.ensureInitialized();
     try {
       const { data } = await this.octokit.repos.getContent({
         owner,
@@ -92,6 +106,7 @@ export class GitHubService {
     message: string,
     branch?: string,
   ) {
+    await this.ensureInitialized();
     try {
       console.log(
         `[GitHub] Committing file to ${owner}/${repo}/${path} on branch ${branch || "default"}...`,
@@ -120,6 +135,7 @@ export class GitHubService {
   }
 
   async createBranch(owner: string, repo: string, base: string, newBranch: string) {
+    await this.ensureInitialized();
     try {
       const { data: ref } = await this.octokit.git.getRef({
         owner,
@@ -149,6 +165,7 @@ export class GitHubService {
     head: string,
     base: string,
   ) {
+    await this.ensureInitialized();
     try {
       const { data } = await this.octokit.pulls.create({
         owner,
@@ -169,6 +186,7 @@ export class GitHubService {
    * Fetches workflow run logs (for RCA analysis)
    */
   async getWorkflowLogs(owner: string, repo: string, runId: number): Promise<string> {
+    await this.ensureInitialized();
     try {
       console.log(`[GitHub] Fetching logs for run ${runId}...`);
 
@@ -220,6 +238,7 @@ Logs URL: ${url}
    * Gets failed workflow runs for a repository
    */
   async getFailedWorkflowRuns(owner: string, repo: string, limit: number = 5) {
+    await this.ensureInitialized();
     try {
       const { data } = await this.octokit.actions.listWorkflowRunsForRepo({
         owner,
