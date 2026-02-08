@@ -178,7 +178,7 @@ export class AgentOrchestrator {
     this.socketService.emitIncidentUpdate({ ...incident, statusMessage: "Generating Code Fix..." });
 
     await this.logAgentRun(incident.id, "Patch", AgentStatus.WORKING, "Generating fix...");
-    const patchResult = await this.patchAgent.execute(incident, rcaResult.data);
+    const patchResult = await this.patchAgent.execute({ incident, rcaContext: rcaResult.data });
     await this.logAgentRun(
       incident.id,
       "Patch",
@@ -298,7 +298,11 @@ export class AgentOrchestrator {
           AgentStatus.WORKING,
           `Self-healing fix (Attempt ${attempt + 1})...`,
         );
-        const retryPatchResult = await this.patchAgent.execute(incident, rcaData, verificationLogs);
+        const retryPatchResult = await this.patchAgent.execute({
+          incident,
+          rcaContext: rcaData,
+          previousFailures: verificationLogs,
+        });
 
         if (!retryPatchResult.success) {
           console.error("[Orchestrator] Re-patch failed. Aborting retry.");

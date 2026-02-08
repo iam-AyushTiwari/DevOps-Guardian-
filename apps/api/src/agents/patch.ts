@@ -16,11 +16,12 @@ export class PatchAgent implements IAgent {
     this.gemini = new GeminiProvider(apiKey || process.env.GEMINI_API_KEY || "");
   }
 
-  async execute(
-    incident: IncidentEvent,
-    rcaContext: any,
-    previousFailures?: string[],
-  ): Promise<AgentResult> {
+  async execute(input: any): Promise<AgentResult> {
+    // Extract parameters from input
+    const incident: IncidentEvent = input.incident || input;
+    const rcaContext: any = input.rcaContext;
+    const previousFailures: string[] | undefined = input.previousFailures;
+
     this.status = AgentStatus.WORKING;
     console.log(
       `[Patch] Generating fix for: ${incident.title} ${previousFailures ? "(Retry Attempt)" : ""}`,
