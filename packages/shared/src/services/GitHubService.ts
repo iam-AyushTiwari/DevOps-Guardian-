@@ -8,12 +8,16 @@ export class GitHubService {
     this.initPromise = this.initialize(authToken);
   }
 
-  private async initialize(authToken: string) {
-    const { Octokit } = await import("@octokit/rest");
-    this.octokit = new Octokit({ auth: authToken });
+  private async initialize(authToken: string): Promise<void> {
+    // Type assertion to preserve dynamic import in CommonJS compilation
+    const { Octokit } = await import("@octokit/rest") as typeof import("@octokit/rest");
+    this.octokit = new Octokit({ 
+      auth: authToken,
+      userAgent: 'devops-guardian/0.1.0' // Recommended for GitHub API
+    });
   }
 
-  private async ensureInitialized() {
+  private async ensureInitialized(): Promise<void> {
     await this.initPromise;
   }
 
@@ -25,8 +29,8 @@ export class GitHubService {
     try {
       const { data } = await this.octokit.users.getAuthenticated();
       return data;
-    } catch (error) {
-      console.error("[GitHub] Auth Failed:", error);
+    } catch (error: any) {
+      console.error("[GitHub] Auth Failed:", error.message);
       throw new Error("Invalid GitHub Token");
     }
   }
@@ -112,16 +116,13 @@ export class GitHubService {
         `[GitHub] Committing file to ${owner}/${repo}/${path} on branch ${branch || "default"}...`,
       );
 
-      // Check if file exists to get SHA (for update) - omitting for now as we assume new file for onboarding
-      // In real app, we should fetch SHA first if updating.
-
       await this.octokit.repos.createOrUpdateFileContents({
         owner,
         repo,
         path,
         message,
         content: Buffer.from(content).toString("base64"),
-        branch, // Octokit accepts branch param
+        branch,
       });
 
       return { success: true, path };
@@ -197,11 +198,7 @@ export class GitHubService {
         run_id: runId,
       });
 
-      // The API returns a redirect URL to the zip file
-      // For now, we return the URL - in production you'd download and extract
-      console.log(`[GitHub] Log URL: ${url}`);
-
-      // Alternatively, get job logs which might be more useful
+      // Get job logs which might be more useful
       const { data: jobs } = await this.octokit.actions.listJobsForWorkflowRun({
         owner,
         repo,
@@ -209,7 +206,7 @@ export class GitHubService {
       });
 
       // Find failed jobs
-      const failedJobs = jobs.jobs.filter((job) => job.conclusion === "failure");
+      const failedJobs = jobs.jobs.filter((job: any) => job.conclusion === "failure");
 
       if (failedJobs.length === 0) {
         return "No failed jobs found in this run.";
@@ -217,12 +214,12 @@ export class GitHubService {
 
       // Get logs for first failed job (simplified)
       const failedJob = failedJobs[0];
-      const failedSteps = failedJob.steps?.filter((s) => s.conclusion === "failure") || [];
+      const failedSteps = failedJob.steps?.filter((s: any) => s.conclusion === "failure") || [];
 
       const summary = `
 Failed Job: ${failedJob.name}
 Status: ${failedJob.conclusion}
-Failed Steps: ${failedSteps.map((s) => s.name).join(", ")}
+Failed Steps: ${failedSteps.map((s: any) => s.name).join(", ")}
 Job URL: ${failedJob.html_url}
 Logs URL: ${url}
       `.trim();
