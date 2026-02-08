@@ -6,8 +6,8 @@ import {
   GeminiProvider,
 } from "@devops-guardian/shared";
 import { LogStreamService, LogStreamConfig, LogEvent } from "@devops-guardian/shared";
-import { MemoryAgent } from "./memory";
-import { orchestrator } from "../orchestrator";
+import { MemoryAgent } from "./memory.js";
+import { orchestrator } from "../orchestrator.js";
 
 export class ProductionWatcherAgent implements IAgent {
   name = "Production Watcher";

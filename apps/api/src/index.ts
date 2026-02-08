@@ -16,7 +16,7 @@ console.log(
 import express from "express";
 
 import cors from "cors";
-import { orchestrator } from "./orchestrator";
+import { orchestrator } from "./orchestrator.js";
 import { IncidentEventSchema } from "@devops-guardian/shared";
 
 const app = express();
@@ -24,7 +24,7 @@ const port = process.env.PORT || 3001;
 
 app.use(
   cors({
-    origin: [process.env.FRONTEND_URL || "http://localhost:3002", "http://127.0.0.1:3002"],
+    origin: [process.env.FRONTEND_URL || "http://localhost:3002"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   }),
@@ -34,19 +34,19 @@ app.use(express.urlencoded({ limit: "50mb", extended: true })); // Required for 
 
 // Create HTTP server for Socket.io
 import { createServer } from "http";
-import { SocketService } from "./services/SocketService";
+import { SocketService } from "./services/SocketService.js";
 
 const httpServer = createServer(app);
 const socketService = SocketService.getInstance();
 socketService.initialize(httpServer);
 
-import { onboardingRouter } from "./routes/onboarding";
-import { authRouter } from "./routes/auth";
-import { projectsRouter } from "./routes/projects";
-import { watcherRouter } from "./routes/watcher";
-import { logIngestionRouter } from "./routes/logIngestion";
-import { slackRouter } from "./routes/slack";
-import { analyticsRouter } from "./routes/analytics";
+import { onboardingRouter } from "./routes/onboarding.js";
+import { authRouter } from "./routes/auth.js";
+import { projectsRouter } from "./routes/projects.js";
+import { watcherRouter } from "./routes/watcher.js";
+import { logIngestionRouter } from "./routes/logIngestion.js";
+import { slackRouter } from "./routes/slack.js";
+import { analyticsRouter } from "./routes/analytics.js";
 
 app.use("/api/onboarding", onboardingRouter);
 app.use("/api/auth", authRouter);

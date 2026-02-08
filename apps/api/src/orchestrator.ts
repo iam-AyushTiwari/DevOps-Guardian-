@@ -1,13 +1,13 @@
 import { IncidentEvent, AgentStatus, AgentResult, db } from "@devops-guardian/shared";
-import { RCAAgent } from "./agents/rca";
-import { PatchAgent } from "./agents/patch";
-import { VerificationAgent } from "./agents/verify";
-import { PRAgent } from "./agents/pr";
+import { RCAAgent } from "./agents/rca.js";
+import { PatchAgent } from "./agents/patch.js";
+import { VerificationAgent } from "./agents/verify.js";
+import { PRAgent } from "./agents/pr.js";
 import { GeminiProvider } from "@devops-guardian/shared";
-import { MemoryAgent } from "./agents/memory";
+import { MemoryAgent } from "./agents/memory.js";
 import { SlackService } from "@devops-guardian/shared/src/services/SlackService";
 import { SecretsManagerService } from "@devops-guardian/shared/src/services/SecretsManagerService";
-import { SocketService } from "./services/SocketService";
+import { SocketService } from "./services/SocketService.js";
 import dotenv from "dotenv";
 
 dotenv.config();

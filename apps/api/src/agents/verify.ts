@@ -5,8 +5,8 @@ import {
   IncidentEvent,
   VerificationService,
 } from "@devops-guardian/shared";
-import { MemoryAgent } from "./memory";
-import { SocketService } from "../services/SocketService";
+import { MemoryAgent } from "./memory.js";
+import { SocketService } from "../services/SocketService.js";
 
 export class VerificationAgent implements IAgent {
   name = "Verification Agent";

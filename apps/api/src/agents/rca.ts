@@ -1,4 +1,4 @@
-import { MemoryAgent } from "./memory";
+import { MemoryAgent } from "./memory.js";
 import {
   IAgent,
   AgentStatus,
