@@ -1,7 +1,7 @@
 // packages/shared/src/services/GeminiProvider.ts
 import { GoogleGenAI } from "@google/genai";
-import { db } from "../db";
-import { AgentStatus } from "../index";
+import { db } from "../db.js";
+import { AgentStatus } from "../index.js";
 
 export class GeminiProvider {
   private client: any;

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db, GitHubService, GeminiProvider } from "@devops-guardian/shared";
-import { SecretsManagerService } from "@devops-guardian/shared/src/services/SecretsManagerService";
-import { PipelineAgent } from "../agents/pipeline";
+import { SecretsManagerService } from "@devops-guardian/shared";
+import { PipelineAgent } from "../agents/pipeline.js";
 
 const router = Router();
 

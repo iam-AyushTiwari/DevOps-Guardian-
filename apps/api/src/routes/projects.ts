@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "@devops-guardian/shared";
 import axios from "axios";
-import { SecretsManagerService } from "@devops-guardian/shared/src/services/SecretsManagerService";
+import { SecretsManagerService } from "@devops-guardian/shared";
 
 const router = Router();
 

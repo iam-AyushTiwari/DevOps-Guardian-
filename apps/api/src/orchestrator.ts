@@ -3,14 +3,14 @@ import { RCAAgent } from "./agents/rca.js";
 import { PatchAgent } from "./agents/patch.js";
 import { VerificationAgent } from "./agents/verify.js";
 import { PRAgent } from "./agents/pr.js";
-import { GeminiProvider } from "@devops-guardian/shared";
+import { GeminiProvider, SlackService, SecretsManagerService } from "@devops-guardian/shared";
 import { MemoryAgent } from "./agents/memory.js";
-import { SlackService } from "@devops-guardian/shared/src/services/SlackService";
-import { SecretsManagerService } from "@devops-guardian/shared/src/services/SecretsManagerService";
 import { SocketService } from "./services/SocketService.js";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Ensure ESM compatibility for shared modules
 
 export class AgentOrchestrator {
   // Hybrid Storage: Map (Memory) + DB (Persistence)

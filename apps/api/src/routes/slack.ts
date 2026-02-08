@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
-import { SlackService } from "@devops-guardian/shared/src/services/SlackService";
-import { SecretsManagerService } from "@devops-guardian/shared/src/services/SecretsManagerService";
+import { SlackService, SecretsManagerService } from "@devops-guardian/shared";
 
 const router = Router();
 const secretsManager = new SecretsManagerService();

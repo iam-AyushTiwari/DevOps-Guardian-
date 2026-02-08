@@ -49,9 +49,10 @@ export interface IAgent {
   execute(input: any): Promise<AgentResult>;
 }
 
-export * from "./db";
-export * from "./services/GeminiProvider";
-export * from "./services/GitHubService";
-export * from "./services/SecretsManagerService";
-export * from "./services/VerificationService";
-export * from "./services/LogStreamService";
+export * from "./db.js";
+export * from "./services/GeminiProvider.js";
+export * from "./services/GitHubService.js";
+export * from "./services/SecretsManagerService.js";
+export * from "./services/VerificationService.js";
+export * from "./services/LogStreamService.js";
+export * from "./services/SlackService.js";

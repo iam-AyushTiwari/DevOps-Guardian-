@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
-import { ProductionWatcherAgent } from "../agents/watcher";
+import { ProductionWatcherAgent } from "../agents/watcher.js";
 import { GeminiProvider, SecretsManagerService } from "@devops-guardian/shared";
-import { MemoryAgent } from "../agents/memory";
+import { MemoryAgent } from "../agents/memory.js";
 
 const router = Router();
 

@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { orchestrator } from "../orchestrator";
+import { orchestrator } from "../orchestrator.js";
 import { db } from "@devops-guardian/shared";
 import zlib from "zlib";
 import crypto from "crypto";

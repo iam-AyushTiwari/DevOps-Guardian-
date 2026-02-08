@@ -20,5 +20,8 @@
     "prettier": "^3.8.1",
     "turbo": "latest",
     "typescript": "^5.0.0"
+  },
+  "overrides": {
+    "chalk": "^4.1.2"
   }
 }
