@@ -81,6 +81,8 @@ model Project {
   githubToken  String?  // Encrypted PAT or Installation Token
   webhookToken String?  // Guardian webhook token for log ingestion
   
+  ownerId      String?  // GitHub Login / User ID
+  
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

@@ -83,6 +83,7 @@ router.post("/connect", async (req: Request, res: Response): Promise<any> => {
         name,
         githubRepo, // "facebook/react"
         githubToken: "REDACTED", // Token is now in Secrets Manager
+        ownerId: user.login,
       },
     });
 
