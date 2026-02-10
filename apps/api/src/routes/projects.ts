@@ -25,8 +25,19 @@ router.get("/", async (req: Request, res: Response): Promise<any> => {
       }
     }
 
-    // 2. Fetch All Projects
+    // 2. Fetch User's Projects
+    const whereCondition: any = {};
+    if (userLogin) {
+      whereCondition.OR = [
+        { ownerId: userLogin },
+        { ownerId: null }, // Legacy support for projects created before auth
+      ];
+    } else {
+      whereCondition.ownerId = null; // Guests only see legacy/public
+    }
+
     const projects = await db.project.findMany({
+      where: whereCondition,
       orderBy: { createdAt: "desc" },
     });
 
@@ -85,8 +96,8 @@ router.post("/:id/scan", async (req: Request, res: Response): Promise<any> => {
     if (!project) return res.status(404).json({ error: "Project not found" });
 
     const crypto = await import("crypto");
-    const { orchestrator } = await import("../orchestrator");
-    const { SocketService } = await import("../services/SocketService");
+    const { orchestrator } = await import("../orchestrator.js");
+    const { SocketService } = await import("../services/SocketService.js");
 
     console.log(`[Projects] Triggering manual scan for ${project.name}...`);
 
